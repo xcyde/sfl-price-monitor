@@ -9,8 +9,6 @@ export async function runPriceFetch(): Promise<void> {
 }
 
 export function startPriceFetcherCron(): void {
-  runPriceFetch().catch((err) => console.error('[priceFetcher] initial run failed:', err));
-
   cron.schedule('*/15 * * * *', async () => {
     try {
       await runPriceFetch();
