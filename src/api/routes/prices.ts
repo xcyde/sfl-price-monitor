@@ -5,6 +5,7 @@ import {
   aggregateQuerySchema,
   priceResponseSchema,
   aggregateResponseSchema,
+  errorResponseSchema,
 } from '../schemas';
 import {
   findItemByName,
@@ -21,12 +22,22 @@ const PERIOD_TO_INTERVAL: Record<string, string> = {
 };
 
 export const pricesRoutes: FastifyPluginAsyncZod = async (app) => {
+  // Защищаем весь модуль одной точкой: хук навешивается на этот
+  // (инкапсулированный) плагин, поэтому применяется ко всем роутам ниже —
+  // забыть отдельный роут невозможно. onRequest — самый ранний хук, guard
+  // отсекает неавторизованный запрос до парсинга/валидации.
+  app.addHook('onRequest', app.authenticate);
+
   app.get(
     '/latest',
     {
       schema: {
+        security: [{ bearerAuth: [] }],
         querystring: latestQuerySchema,
-        response: { 200: z.array(priceResponseSchema) },
+        response: {
+          200: z.array(priceResponseSchema),
+          401: errorResponseSchema,
+        },
       },
     },
     async (request) => {
@@ -44,9 +55,11 @@ export const pricesRoutes: FastifyPluginAsyncZod = async (app) => {
     '/history',
     {
       schema: {
+        security: [{ bearerAuth: [] }],
         querystring: historyQuerySchema,
         response: {
           200: z.array(priceResponseSchema),
+          401: errorResponseSchema,
           404: z.object({ message: z.string() }),
         },
       },
@@ -72,9 +85,11 @@ export const pricesRoutes: FastifyPluginAsyncZod = async (app) => {
     '/aggregate',
     {
       schema: {
+        security: [{ bearerAuth: [] }],
         querystring: aggregateQuerySchema,
         response: {
           200: aggregateResponseSchema,
+          401: errorResponseSchema,
           404: z.object({ message: z.string() }),
         },
       },
