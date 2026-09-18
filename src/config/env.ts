@@ -8,6 +8,7 @@ const envSchema = z.object({
   JWT_ACCESS_TTL: z.string().default('15m'),
   REFRESH_TOKEN_TTL_DAYS: z.coerce.number().default(30),
   BOT_INTERNAL_SECRET: z.string().min(16),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
 });
 
 export function parseEnv(source: NodeJS.ProcessEnv = process.env) {

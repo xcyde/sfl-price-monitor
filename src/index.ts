@@ -15,12 +15,22 @@ import { startPriceFetcherCron } from './jobs/priceFetcher.ts';
 import { pricesRoutes } from './api/routes/prices.ts';
 import { authRoutes } from './api/routes/auth.ts';
 import { env } from './config/env.ts';
+import { createBot } from './modules/bot/index.ts';
+import type { Bot } from 'grammy';
 
 async function main() {
   await migrate();
   console.log('Database migration completed successfully.');
 
   startPriceFetcherCron();
+
+  let bot: Bot | undefined;
+  if (env.TELEGRAM_BOT_TOKEN) {
+    bot = createBot(env.TELEGRAM_BOT_TOKEN);
+    bot.start();
+  } else {
+    console.warn('TELEGRAM_BOT_TOKEN is not set — bot disabled');
+  }
 
   const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 
@@ -69,6 +79,14 @@ async function main() {
   await app.register(pricesRoutes, { prefix: '/api/prices' });
 
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
+
+  async function shutdown() {
+    await Promise.all([app.close(), bot?.stop()]);
+    process.exit(0);
+  }
+
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 }
 
 main().catch((err) => {
