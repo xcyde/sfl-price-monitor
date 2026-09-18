@@ -1,8 +1,8 @@
 import { readdir, readFile } from 'fs/promises';
 import { join } from 'path';
-import sql from './index';
+import sql from './index.ts';
 
-const migrationsDir = join(__dirname, 'migrations');
+const migrationsDir = join(import.meta.dirname, 'migrations');
 
 export async function migrate() {
   await sql`CREATE TABLE IF NOT EXISTS migrations (

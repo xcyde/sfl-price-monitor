@@ -1,4 +1,4 @@
-import sql from '../../db/index';
+import sql from '../../db/index.ts';
 
 /**
  * Помечает refresh-токен использованным (вызывается при ротации).

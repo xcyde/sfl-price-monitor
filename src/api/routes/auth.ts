@@ -8,17 +8,17 @@ import {
   tokenPairSchema,
   userResponseSchema,
   errorResponseSchema,
-} from '../schemas';
-import { createAuthService, AuthError } from '../../modules/auth/authService';
-import { findById } from '../../modules/users/usersRepository';
-import { env } from '../../config/env';
+} from '../schemas.ts';
+import { createAuthService, AuthError } from '../../modules/auth/authService.ts';
+import { findById } from '../../modules/users/usersRepository.ts';
+import { env } from '../../config/env.ts';
 
 /**
  * Проверка секрета бота в constant time.
  * Сравниваем SHA-256-дайджесты: они всегда одной длины (32 байта), поэтому
  * timingSafeEqual не бросает исключение и не утекает длина секрета по времени.
  */
-function isValidBotSecret(provided: string | undefined): boolean {
+export function isValidBotSecret(provided: string | undefined): boolean {
   if (!provided) return false;
   const a = crypto.createHash('sha256').update(provided).digest();
   const b = crypto.createHash('sha256').update(env.BOT_INTERNAL_SECRET).digest();

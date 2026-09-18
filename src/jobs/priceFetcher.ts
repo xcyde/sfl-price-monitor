@@ -1,6 +1,6 @@
 import cron from 'node-cron';
-import { fetchPrices } from '../modules/prices/pricesFetcher';
-import { savePrices } from '../modules/prices/pricesRepository';
+import { fetchPrices } from '../modules/prices/pricesFetcher.ts';
+import { savePrices } from '../modules/prices/pricesRepository.ts';
 
 export async function runPriceFetch(): Promise<void> {
   const entries = await fetchPrices();

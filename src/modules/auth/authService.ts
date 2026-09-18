@@ -1,10 +1,10 @@
 import crypto from 'crypto';
 import type { JWT } from '@fastify/jwt';
-import { env } from '../../config/env';
-import type { User } from '../users/usersRepository';
-import * as usersRepository from '../users/usersRepository';
-import * as refreshTokensRepository from './refreshTokensRepository';
-import * as usedRefreshTokensRepository from './usedRefreshTokensRepository';
+import { env } from '../../config/env.ts';
+import type { User } from '../users/usersRepository.ts';
+import * as usersRepository from '../users/usersRepository.ts';
+import * as refreshTokensRepository from './refreshTokensRepository.ts';
+import * as usedRefreshTokensRepository from './usedRefreshTokensRepository.ts';
 
 export interface TokenPair {
   accessToken: string;

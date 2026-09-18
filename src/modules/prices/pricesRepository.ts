@@ -1,5 +1,5 @@
-import sql from '../../db/index';
-import type { PriceEntry } from '../../interfaces';
+import sql from '../../db/index.ts';
+import type { PriceEntry } from '../../interfaces/index.ts';
 
 export async function findItemByName(name: string): Promise<{ id: number } | null> {
   const rows = await sql<{ id: number }[]>`SELECT id FROM items WHERE name = ${name}`;

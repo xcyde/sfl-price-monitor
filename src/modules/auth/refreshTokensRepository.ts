@@ -1,4 +1,4 @@
-import sql from '../../db/index';
+import sql from '../../db/index.ts';
 
 export interface RefreshToken {
   id: number;

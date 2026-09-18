@@ -1,13 +1,11 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import type { JWT } from '@fastify/jwt';
-import type { User } from '../users/usersRepository';
-import type { RefreshToken } from './refreshTokensRepository';
-import type { AuthServiceDeps } from './authService';
+import type { User } from '../users/usersRepository.js';
+import type { RefreshToken } from './refreshTokensRepository.js';
+import type { AuthServiceDeps } from './authService.js';
 
-// authService импортирует config/env, который парсит process.env при загрузке
-// модуля. Поэтому переменные окружения выставляем ДО динамического импорта.
-type AuthModule = typeof import('./authService');
+type AuthModule = typeof import('./authService.js');
 let mod: AuthModule;
 
 before(async () => {
@@ -15,10 +13,8 @@ before(async () => {
   process.env.JWT_SECRET = 'x'.repeat(40);
   process.env.BOT_INTERNAL_SECRET = 'y'.repeat(20);
   process.env.REFRESH_TOKEN_TTL_DAYS = '30';
-  mod = await import('./authService');
+  mod = await import('./authService.ts');
 });
-
-// --- in-memory фейки репозиториев (DI вместо БД) ---
 
 function makeUsersRepo() {
   const store = new Map<number, User>();
@@ -104,18 +100,15 @@ function setup() {
   return { users, refreshTokens, usedRefreshTokens, jwt, service };
 }
 
-// helper: предикат ошибки для assert.rejects
 function isAuthError(re: RegExp) {
   return (err: unknown): true => {
-    assert.ok(err instanceof mod.AuthError, `ожидали AuthError, получили ${err}`);
+    assert.ok(err instanceof mod.AuthError, `expected AuthError, got ${err}`);
     assert.match((err as Error).message, re);
     return true;
   };
 }
 
-// --- login ---
-
-test('login: создаёт юзера, выдаёт пару и сохраняет ХЕШ refresh-токена', async () => {
+test('login: creates user, returns token pair, stores refresh token hash', async () => {
   const { service, refreshTokens, jwt } = setup();
 
   const res = await service.login('12345', 'testuser');
@@ -123,19 +116,14 @@ test('login: создаёт юзера, выдаёт пару и сохраня�
   assert.equal(res.user.telegramId, '12345');
   assert.equal(res.user.telegramUsername, 'testuser');
   assert.equal(res.accessToken, 'signed-token');
-  // refresh — 32 байта в hex
   assert.match(res.refreshToken, /^[0-9a-f]{64}$/);
-  // access подписан с правильным payload
   assert.deepEqual(jwt.calls[0], { userId: res.user.id, telegramId: '12345' });
-  // в БД лежит запись, и это ХЕШ, а не сам токен
   const stored = refreshTokens.byUser.get(res.user.id);
-  assert.ok(stored, 'refresh-запись должна быть сохранена');
+  assert.ok(stored, 'refresh record must be saved');
   assert.notEqual(stored!.tokenHash, res.refreshToken);
 });
 
-// --- refresh: happy path (ротация) ---
-
-test('refresh: ротирует токен — новый != старый, старый помечен использованным', async () => {
+test('refresh: rotates token — new differs from old, old is marked used', async () => {
   const { service, refreshTokens, usedRefreshTokens } = setup();
   const { user, refreshToken: r1 } = await service.login('1', null);
   const oldHash = refreshTokens.byUser.get(user.id)!.tokenHash;
@@ -143,50 +131,40 @@ test('refresh: ротирует токен — новый != старый, ст�
   const res = await service.refresh(r1);
 
   assert.notEqual(res.refreshToken, r1);
-  assert.ok(usedRefreshTokens.byHash.has(oldHash), 'старый хеш должен попасть в журнал');
-  assert.notEqual(refreshTokens.byUser.get(user.id)!.tokenHash, oldHash, 'активный хеш ротирован');
+  assert.ok(usedRefreshTokens.byHash.has(oldHash));
+  assert.notEqual(refreshTokens.byUser.get(user.id)!.tokenHash, oldHash);
 });
 
-// --- refresh: reuse-детекция ---
-
-test('refresh: повтор ротированного токена → reuse detected + отзыв сессии', async () => {
+test('refresh: replaying a rotated token triggers reuse detection and revokes session', async () => {
   const { service, refreshTokens } = setup();
   const { user, refreshToken: r1 } = await service.login('1', null);
 
-  await service.refresh(r1); // r1 теперь использован, активен уже r2
+  await service.refresh(r1);
 
   await assert.rejects(() => service.refresh(r1), isAuthError(/reuse/));
-  // активная сессия должна быть отозвана целиком
   assert.equal(refreshTokens.byUser.has(user.id), false);
 });
 
-// --- refresh: невалидный токен ---
-
-test('refresh: неизвестный токен → invalid refresh token', async () => {
+test('refresh: unknown token → invalid refresh token error', async () => {
   const { service } = setup();
   await service.login('1', null);
 
   await assert.rejects(() => service.refresh('0'.repeat(64)), isAuthError(/invalid/));
 });
 
-// --- refresh: просроченный токен ---
-
-test('refresh: просроченный токен → expired + запись удалена', async () => {
+test('refresh: expired token → expired error, record removed', async () => {
   const { service, refreshTokens } = setup();
   const { user, refreshToken: r1 } = await service.login('1', null);
-  // принудительно «просрочим» активную запись
   refreshTokens.byUser.get(user.id)!.expiresAt = new Date(0);
 
   await assert.rejects(() => service.refresh(r1), isAuthError(/expired/));
   assert.equal(refreshTokens.byUser.has(user.id), false);
 });
 
-// --- refresh: юзер исчез ---
-
-test('refresh: токен валиден, но юзер удалён → user not found', async () => {
+test('refresh: valid token but user deleted → user not found error', async () => {
   const { service, users } = setup();
   const { user, refreshToken: r1 } = await service.login('1', null);
-  users.store.delete(user.id); // токен остался, юзера нет
+  users.store.delete(user.id);
 
   await assert.rejects(() => service.refresh(r1), isAuthError(/user not found/));
 });

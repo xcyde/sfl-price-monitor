@@ -1,6 +1,6 @@
-import { env } from '../../config/env';
+import { env } from '../../config/env.ts';
 
-import type { SflPricesApiResponse, PriceEntry } from '../../interfaces';
+import type { SflPricesApiResponse, PriceEntry } from '../../interfaces/index.ts';
 
 export async function fetchPrices(): Promise<PriceEntry[]> {
   const response = await fetch(env.PRICES_API_URL);

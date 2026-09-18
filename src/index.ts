@@ -10,11 +10,11 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod';
 
-import { migrate } from './db/migrate';
-import { startPriceFetcherCron } from './jobs/priceFetcher';
-import { pricesRoutes } from './api/routes/prices';
-import { authRoutes } from './api/routes/auth';
-import { env } from './config/env';
+import { migrate } from './db/migrate.ts';
+import { startPriceFetcherCron } from './jobs/priceFetcher.ts';
+import { pricesRoutes } from './api/routes/prices.ts';
+import { authRoutes } from './api/routes/auth.ts';
+import { env } from './config/env.ts';
 
 async function main() {
   await migrate();

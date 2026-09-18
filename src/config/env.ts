@@ -10,4 +10,8 @@ const envSchema = z.object({
   BOT_INTERNAL_SECRET: z.string().min(16),
 });
 
-export const env = envSchema.parse(process.env);
+export function parseEnv(source: NodeJS.ProcessEnv = process.env) {
+  return envSchema.parse(source);
+}
+
+export const env = parseEnv();

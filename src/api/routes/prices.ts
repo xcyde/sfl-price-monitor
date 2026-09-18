@@ -6,13 +6,13 @@ import {
   priceResponseSchema,
   aggregateResponseSchema,
   errorResponseSchema,
-} from '../schemas';
+} from '../schemas.ts';
 import {
   findItemByName,
   findLatestPrices,
   findPriceHistory,
   findPriceAggregate,
-} from '../../modules/prices/pricesRepository';
+} from '../../modules/prices/pricesRepository.ts';
 import { z } from 'zod';
 
 const PERIOD_TO_INTERVAL: Record<string, string> = {
