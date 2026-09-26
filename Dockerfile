@@ -10,6 +10,7 @@ RUN npm run build \
 
 FROM node:24-slim AS runner
 WORKDIR /app
+ENV NODE_ENV=production
 RUN groupadd --system --gid 1001 nodejs \
     && useradd --system --uid 1001 --gid nodejs nodeuser
 COPY --from=builder --chown=nodeuser:nodejs /app/node_modules ./node_modules

@@ -2,7 +2,6 @@ import crypto from 'crypto';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import {
   loginBodySchema,
-  loginHeadersSchema,
   loginResponseSchema,
   refreshBodySchema,
   tokenPairSchema,
@@ -34,7 +33,6 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     '/login',
     {
       schema: {
-        headers: loginHeadersSchema,
         body: loginBodySchema,
         response: {
           200: loginResponseSchema,
@@ -44,7 +42,8 @@ export const authRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       // Доверяем только боту: /login недоступен снаружи без общего секрета.
-      if (!isValidBotSecret(request.headers['x-bot-secret'])) {
+      const botSecretHeader = request.headers['x-bot-secret'];
+      if (!isValidBotSecret(typeof botSecretHeader === 'string' ? botSecretHeader : undefined)) {
         return reply.code(401).send({ message: 'unauthorized' });
       }
 

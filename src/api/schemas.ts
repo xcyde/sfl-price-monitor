@@ -39,15 +39,6 @@ export const loginBodySchema = z.object({
   username: z.string().min(1).nullish(),
 });
 
-// Заголовок с секретом бота. Опционален на уровне схемы (чтобы отсутствие
-// давало 401 от нашей ручной проверки, а не 400 от валидатора), но благодаря
-// объявлению он появляется полем в Swagger UI — можно тестить /login из браузера.
-// TODO(security, до прода): это поле раскрывает существование секрета бота в
-// публичных доках; в проде Swagger UI должен быть закрыт (см. index.ts).
-export const loginHeadersSchema = z.object({
-  'x-bot-secret': z.string().min(1).optional(),
-});
-
 export const refreshBodySchema = z.object({
   refreshToken: z.string().min(1),
 });

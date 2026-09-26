@@ -43,27 +43,32 @@ async function main() {
     }
   });
 
-  await app.register(swagger, {
-    openapi: {
-      info: {
-        title: 'Sunflower Land Price Monitor API',
-        version: '1.0.0',
-      },
-      components: {
-        securitySchemes: {
-          bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+  if (env.ENABLE_SWAGGER) {
+    await app.register(swagger, {
+      openapi: {
+        info: {
+          title: 'Sunflower Land Price Monitor API',
+          version: '1.0.0',
+        },
+        components: {
+          securitySchemes: {
+            bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+          },
         },
       },
-    },
-    transform: jsonSchemaTransform,
-  });
+      transform: jsonSchemaTransform,
+    });
 
-  // TODO(security, до прода): /docs открыт всем и показывает поле x-bot-secret.
-  // Перед деплоем — выключить Swagger UI в проде (или закрыть за авторизацией),
-  // чтобы секрет бота не светился в браузере. См. также loginHeadersSchema.
-  await app.register(swaggerUi, {
-    routePrefix: '/docs',
-  });
+    await app.register(swaggerUi, {
+      routePrefix: '/docs',
+    });
+  }
+
+  app.get(
+    '/health',
+    { schema: { hide: true }, logLevel: 'silent' },
+    async () => ({ status: 'ok' })
+  );
 
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(pricesRoutes, { prefix: '/api/prices' });

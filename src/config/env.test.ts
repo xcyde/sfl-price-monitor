@@ -53,6 +53,33 @@ test('throws when BOT_INTERNAL_SECRET is shorter than 16 characters', () => {
   );
 });
 
+test('ENABLE_SWAGGER defaults to false when unset', () => {
+  const result = parseEnv({
+    DATABASE_URL: 'postgres://test',
+    JWT_SECRET: 'x'.repeat(32),
+    BOT_INTERNAL_SECRET: 'y'.repeat(16),
+  });
+  assert.equal(result.ENABLE_SWAGGER, false);
+});
+
+test('ENABLE_SWAGGER is true only for the exact string "true"', () => {
+  const enabled = parseEnv({
+    DATABASE_URL: 'postgres://test',
+    JWT_SECRET: 'x'.repeat(32),
+    BOT_INTERNAL_SECRET: 'y'.repeat(16),
+    ENABLE_SWAGGER: 'true',
+  });
+  assert.equal(enabled.ENABLE_SWAGGER, true);
+
+  const disabled = parseEnv({
+    DATABASE_URL: 'postgres://test',
+    JWT_SECRET: 'x'.repeat(32),
+    BOT_INTERNAL_SECRET: 'y'.repeat(16),
+    ENABLE_SWAGGER: 'yes',
+  });
+  assert.equal(disabled.ENABLE_SWAGGER, false);
+});
+
 test('coerces PORT and REFRESH_TOKEN_TTL_DAYS from strings to numbers', () => {
   const result = parseEnv({
     DATABASE_URL: 'postgres://test',
