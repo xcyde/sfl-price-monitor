@@ -19,8 +19,10 @@ Keep this string — it goes into `.env` as `DATABASE_URL` in step 6.
 
 1. Oracle Cloud Console → **Compute** → **Instances** → **Create instance**.
 2. Image: **Ubuntu 22.04** (or 24.04), **ARM64** — this is what makes it free-tier eligible.
-3. Shape: **VM.Standard.A1.Flex** — Always Free covers up to 4 OCPUs / 24 GB total
-   across all A1 instances; one instance with 2–4 OCPUs / 6–12 GB is plenty here.
+3. Shape: **VM.Standard.A1.Flex** — Always Free Ampere A1 covers up to **2 OCPU / 12 GB
+   total** across all A1 instances (reduced from 4 OCPU / 24 GB starting June 2026;
+   instances over the limit get deleted). Use **1 OCPU / 2 GB** for this VM — this is
+   a deliberate choice, not just economizing, see "Always Free reclamation risk" below.
 4. Add your SSH public key (or generate one and download the private key —
    there is no other way to reach the instance).
 5. Networking: use the default VCN/subnet unless you already have one.
@@ -43,8 +45,27 @@ VCN → your subnet's Security List → **Add Ingress Rules**:
 
 **b) The instance's own firewall (iptables/ufw)**
 
-Ubuntu images on Oracle ship with `iptables` rules that also block 80/443 by
-default, independently of the Security List above.
+Ubuntu images on Oracle ship with `iptables` rules that already block 80/443
+via a default REJECT rule, independently of the Security List above.
+
+Insert `ACCEPT` rules for 80/tcp and 443/tcp before that REJECT rule and
+persist them — this is the standard approach on Oracle's Ubuntu images:
+
+```bash
+sudo apt-get update && sudo apt-get install -y iptables-persistent
+sudo iptables -I INPUT -p tcp --dport 80 -j ACCEPT
+sudo iptables -I INPUT -p tcp --dport 443 -j ACCEPT
+sudo netfilter-persistent save
+```
+
+`iptables -I` inserts at the top of the `INPUT` chain, ahead of the existing
+REJECT rule — confirm with the diagnostic below that the ACCEPT rules actually
+land before it.
+
+**Alternative: ufw.** `ufw` can be used instead, but on Oracle's Ubuntu images
+it often does not remove or override the pre-existing REJECT rules installed
+by cloud-init, so ports can still look blocked after `ufw enable`. If you use
+it, verify with the diagnostic below rather than assuming it worked.
 
 ```bash
 sudo apt-get update && sudo apt-get install -y ufw
@@ -55,9 +76,15 @@ sudo ufw allow 443/udp
 sudo ufw enable
 ```
 
-If you'd rather not run ufw on top of the default iptables rules, at minimum
-insert equivalent `ACCEPT` rules for 80/tcp and 443/tcp before the default
-REJECT rule in `iptables` and persist them (`iptables-persistent`).
+**Diagnostic** — if the app isn't reachable from outside after opening both
+layers (3a and 3b):
+
+```bash
+sudo iptables -L INPUT -n --line-numbers
+```
+
+If a REJECT rule has a lower line number than the ACCEPT rules for 80/443,
+that REJECT rule is still winning and needs to be reordered or removed.
 
 ## 4. Install Docker + the compose plugin
 
@@ -120,11 +147,40 @@ In Telegram, message your bot:
 
 ## Always Free reclamation risk
 
-Oracle can reclaim an Always Free Ampere A1 instance that it considers idle
-(low CPU/network utilization over a sustained period). This VM runs a cron job
-every 15 minutes and a long-polling bot process, so idle reclamation is
-unlikely but not impossible — treat it as a real risk for a project with no
-paid tier backing it.
+Oracle reclaims an Always Free Ampere A1 instance it considers idle: idle means
+that over a rolling 7-day window **every** monitored metric stays below roughly
+the 20% threshold — CPU (95th percentile), network throughput, and (for A1
+shapes only) memory utilization. It's enough for **any one** metric to stay
+above the threshold for the instance to count as active.
+
+This workload barely touches CPU or network (a cron job every 15 minutes and a
+long-polling bot), so the main defense here is sizing: with **1 OCPU / 2 GB**,
+the OS + Docker + `api` + `bot` + `caddy` footprint keeps memory utilization
+comfortably above 20% on its own, with no extra effort. Do **not** add
+synthetic load (`stress-ng` or similar) to the repo or docker-compose to game
+this metric — it doesn't belong in a project meant to demonstrate real backend
+work.
+
+**Verify this against Oracle's current documentation before relying on it** —
+reclamation thresholds and metrics are Oracle's policy and can change; check
+the current Always Free / OCI docs rather than trusting this write-up as the
+source of truth.
+
+**How to check where you stand:**
+- OCI Console → **Monitoring** → **Metrics** → select the instance →
+  `Memory Utilization` (and CPU/Network) to see what Oracle itself measures.
+- On the VM: `free -m` for a quick live read of memory pressure.
+
+**Swap file**, in case `docker compose build` runs out of memory on a 2 GB
+instance (the build is the heaviest moment; the running containers are lighter):
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+```
 
 **What survives a reclaim:** Neon (managed separately), the DuckDNS hostname,
 the git repository. **What's lost:** the VM itself, its reserved public IP

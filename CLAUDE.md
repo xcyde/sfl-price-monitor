@@ -159,6 +159,11 @@ See `.env.example`.
 - **One VM, two containers.** Not a single process, not two servers.
 - **Oracle Always Free VM + long-polling.** Serverless was rejected: it kills both the
   long-polling bot and node-cron.
+- **Oracle instance sized at 1 OCPU / 2 GB**, not the Always Free max (2 OCPU / 12 GB
+  total across A1 instances as of June 2026). This workload barely touches CPU or
+  network, so idle-reclamation avoidance relies on memory utilization staying above
+  Oracle's ~20% threshold on its own at this size; no synthetic load is added to game
+  the metric. See `docs/deploy-oracle.md`, "Always Free reclamation risk".
 - **Neon for PostgreSQL**, not a Postgres container on the VM (survives VM reclaim).
 - **Swagger is public.** The only leak (the `x-bot-secret` header field in the login
   schema) has been removed.

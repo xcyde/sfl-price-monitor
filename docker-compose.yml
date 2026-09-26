@@ -21,8 +21,8 @@ services:
     build: .
     command: node dist/bot.js
     environment:
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-      BOT_INTERNAL_SECRET: ${BOT_INTERNAL_SECRET}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN is not set in .env — get a token from @BotFather}
+      BOT_INTERNAL_SECRET: ${BOT_INTERNAL_SECRET:?BOT_INTERNAL_SECRET is not set in .env — generate one with openssl rand -hex 16}
       API_BASE_URL: "http://api:${PORT:-3000}"
     depends_on:
       api:
