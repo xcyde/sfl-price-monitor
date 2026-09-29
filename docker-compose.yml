@@ -15,6 +15,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      default:
+      edge:
+        aliases:
+          - sfl-api
     restart: unless-stopped
 
   bot:
@@ -29,24 +34,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2-alpine
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    environment:
-      DOMAIN: ${DOMAIN:?DOMAIN is not set in .env — set your domain for prod, or DOMAIN=:80 for local testing}
-      PORT: ${PORT:-3000}
-    depends_on:
-      api:
-        condition: service_started
-    restart: unless-stopped
-
-volumes:
-  caddy_data:
-  caddy_config:
+networks:
+  edge:
+    external: true
+    name: edge

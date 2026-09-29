@@ -23,10 +23,12 @@ Done:
 - JWT auth (bot-secret login, access + refresh with rotation and reuse detection)
 - Unit tests (native `node:test`)
 - Telegram bot as an authenticated API client, running as a separate process
-- Deployment artifacts: Dockerfile, docker-compose (`api` + `bot` + `caddy`), Swagger gate
-- Deployment hardening: least-privilege env per container, Caddy blocks `/api/auth/login`
+- Deployment artifacts: Dockerfile, docker-compose (`api` + `bot`), `docker-compose.local.yml`,
+  shared edge Caddy template in `deploy/`, Swagger gate
+- Deployment hardening: bot gets only its own env, the edge Caddy blocks `/api/auth/login`
   externally, `.env.example` uses a direct (non-pooled) Neon endpoint
-- Deployment runbook: `docs/deploy-oracle.md` (Oracle Always Free + Neon + DuckDNS)
+- Deployment runbook: `docs/deploy-hetzner.md` (Hetzner Cloud VPS + shared edge Caddy +
+  Neon + DuckDNS, including server hardening and cloud firewall)
 
 Next:
 - CI/CD (GitHub Actions: lint, build, test, deploy)
@@ -44,17 +46,22 @@ Telegram ──long-polling── bot (grammy) ──HTTP + JWT──▶ api (Fa
                                                         ├─ node-cron: fetch prices every 15 min
                                                         ├─ migrations on boot
                                                         └─ PostgreSQL (Neon)
-Browser ──HTTPS──▶ Caddy ──▶ api
+Browser ──HTTPS──▶ edge Caddy (shared, /opt/edge) ──docker network "edge"──▶ sfl-api:3000 (api)
 ```
 
 - Two processes from one repo and one Docker image: `api` (`src/index.ts`) and
   `bot` (`src/bot.ts`), started with different commands.
 - The bot has no database access. It logs in via `POST /api/auth/login` with the
   shared bot secret and calls protected API routes with a Bearer token.
-- Target hosting: Oracle Cloud Always Free VM (ARM64), docker-compose, Caddy for
-  automatic HTTPS, Neon as managed PostgreSQL.
-- Root-level deploy artifacts (outside `src/`): `Dockerfile`, `docker-compose.yml`,
-  `Caddyfile`, `docs/deploy-oracle.md` (step-by-step deploy + Always-Free-reclaim recovery).
+- Hosting: paid Hetzner Cloud VPS (x86, CX line, 2 vCPU / 4 GB, Ubuntu 24.04) shared by
+  several of the user's projects; docker-compose; Neon as managed PostgreSQL.
+- The server runs one shared **edge Caddy** (`/opt/edge`), the only container publishing
+  80/443; it imports one site file per project from `/opt/edge/sites/*.caddy`.
+  This project's compose publishes no ports: `api` joins the external network `edge`
+  with the alias `sfl-api`; `bot` stays in the project network only.
+- Deploy artifacts (outside `src/`): `Dockerfile`, `docker-compose.yml` (prod),
+  `docker-compose.local.yml` (local overlay), `deploy/edge/` (server-wide edge template),
+  `deploy/caddy/sfl.caddy.example` (this project's site file), `docs/deploy-hetzner.md`.
 
 ## Repository map
 
@@ -77,6 +84,10 @@ src/
   modules/bot/          apiClient (HTTP + token cache), handlers, formatPrices, createBot
   types/                Fastify and @fastify/jwt type augmentation
   interfaces/           SFL API response and PriceEntry types
+deploy/
+  edge/                 shared edge Caddy for the whole server (compose, Caddyfile, .env.example)
+  caddy/                this project's site file for the edge (sfl.caddy.example)
+docs/deploy-hetzner.md  server setup + deploy runbook
 ```
 
 ## Data model (actual migrations)
@@ -133,8 +144,13 @@ npm run build                 # tsc → dist/
 npm test                      # node --test over src/**/*.test.ts
 node src/index.ts             # api (needs DATABASE_URL etc. in .env)
 node src/bot.ts               # bot (needs a running api)
-docker compose config         # validate compose file
-docker compose up --build     # api + bot + caddy
+docker compose -f docker-compose.yml -f docker-compose.local.yml config        # validate local variant
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build    # api on 127.0.0.1:3000 + bot
+docker compose config         # prod variant; fails locally without the external `edge` network — expected
+docker compose up -d --build  # prod, on the server (needs `edge` network + running edge Caddy)
+
+# on the server, in /opt/edge — apply changes in sites/*.caddy without downtime
+docker compose exec -w /etc/caddy caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
 ## Environment
@@ -145,8 +161,10 @@ api (`src/config/env.ts`): `DATABASE_URL`, `PRICES_API_URL`, `PORT` (3000), `JWT
 bot (`src/config/botEnv.ts`): `TELEGRAM_BOT_TOKEN`, `BOT_INTERNAL_SECRET`, `API_BASE_URL`
 (`http://127.0.0.1:3000` locally, `http://api:<PORT>` in compose).
 
-Caddy: `DOMAIN` (required — compose fails fast via `${DOMAIN:?...}` if unset), `PORT`.
-See `.env.example`.
+Edge (server-wide, not this project): `ACME_EMAIL` in `/opt/edge/.env` (compose fails fast
+if unset). The domain lives in the site file `/opt/edge/sites/sfl.caddy`, not in env.
+`PORT` in this project's `.env` must match the port in `reverse_proxy sfl-api:3000`.
+See `.env.example` and `deploy/edge/.env.example`.
 
 ## Decisions already made — do not relitigate
 
@@ -157,19 +175,37 @@ See `.env.example`.
 - **Future push notifications go through an outbox table** (api writes, bot sends),
   because the bot is a separate process.
 - **One VM, two containers.** Not a single process, not two servers.
-- **Oracle Always Free VM + long-polling.** Serverless was rejected: it kills both the
+- **Always-on VM + long-polling.** Serverless was rejected: it kills both the
   long-polling bot and node-cron.
-- **Oracle instance sized at 1 OCPU / 2 GB**, not the Always Free max (2 OCPU / 12 GB
-  total across A1 instances as of June 2026). This workload barely touches CPU or
-  network, so idle-reclamation avoidance relies on memory utilization staying above
-  Oracle's ~20% threshold on its own at this size; no synthetic load is added to game
-  the metric. See `docs/deploy-oracle.md`, "Always Free reclamation risk".
-- **Neon for PostgreSQL**, not a Postgres container on the VM (survives VM reclaim).
+- **Paid Hetzner Cloud VPS, CX line (x86, 2 vCPU / 4 GB).** Oracle Always Free was
+  dropped (account could not be created). Not CPX (prices rose sharply in June 2026),
+  not CAX/ARM (x86 keeps third-party images and CI builds of other projects simple).
+  The VPS is shared by several of the user's projects.
+- **One shared edge Caddy per server** (`/opt/edge`), the only owner of ports 80/443.
+  Projects never publish ports and never ship their own Caddy. The template lives in
+  `deploy/edge/` until a second project appears, then moves to a dedicated infra repo.
+- **Shared external docker network `edge` with unique, project-prefixed aliases**
+  (`sfl-api`). Only the service the edge proxies to joins `edge`; everything else stays
+  in the project network. Docker registers plain service names (`api`, `bot`) in every
+  network a container joins, so two projects with an `api` on `edge` would make the name
+  ambiguous — the edge must address projects only by their unique alias.
+- **Local overlay is `docker-compose.local.yml`, passed with `-f`**, never
+  `docker-compose.override.yml` (compose loads that automatically, which would break prod
+  on the server). Locally the `edge` network is a regular project network and `api` is
+  published on `127.0.0.1:${PORT}`; no local Caddy (it would not exercise TLS or the real
+  edge anyway).
+- **Hetzner Cloud Firewall, not `ufw`**: inbound only 22/tcp, 80/tcp, 443/tcp, 443/udp.
+  Docker's iptables rules bypass `ufw` for published ports.
+- **Server access**: non-root sudo user, SSH keys only (`PermitRootLogin no`,
+  `PasswordAuthentication no`), unattended-upgrades. See `docs/deploy-hetzner.md`.
+- **Neon for PostgreSQL**, not a Postgres container on the VM (survives losing the VM,
+  keeps the VPS stateless).
 - **Swagger is public.** The only leak (the `x-bot-secret` header field in the login
   schema) has been removed.
-- **`/api/auth/login` is blocked at Caddy for external traffic** (`respond ... 404` in
-  `Caddyfile`), on top of the bot-secret check in the route itself. Only the `bot`
-  container reaches it, over the internal compose network (`http://api:<PORT>`).
+- **`/api/auth/login` is blocked at the edge Caddy for external traffic** (`respond ... 404`
+  in the site file `deploy/caddy/sfl.caddy.example`), on top of the bot-secret check in
+  the route itself. Only the `bot` container reaches it, over the project network
+  (`http://api:<PORT>`).
 - **Native Node 24 TypeScript**, no `tsx`, no ORM, no third-party test libraries.
 
 ## Known debt and gotchas
@@ -178,6 +214,12 @@ See `.env.example`.
 - `used_refresh_tokens` grows forever — needs a cleanup job.
 - The codebase still contains Russian comments — to be cleaned up (no-comments rule).
 - `bot.start()` promise is not handled: an invalid token causes an unhandled rejection.
+- `api` loads the whole `.env` via `env_file`, so it also receives `TELEGRAM_BOT_TOKEN`
+  and other variables it does not need. Least privilege holds only for `bot`.
+- Service name `api` is also registered in the shared `edge` network. Harmless while SFL is
+  the only project; consider renaming services with a project prefix before adding another.
+- `/opt/edge` on the server holds copies of `deploy/edge/`; repo changes there must be
+  copied over by hand (until the edge moves to its own infra repo).
 
 ## Working rules for AI assistants
 

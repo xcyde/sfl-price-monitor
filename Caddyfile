@@ -1,6 +1,0 @@
-{$DOMAIN}
-
-@blocked path /api/auth/login
-respond @blocked 404
-
-reverse_proxy api:{$PORT:3000}

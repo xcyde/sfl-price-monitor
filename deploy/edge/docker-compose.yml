@@ -1,0 +1,27 @@
+name: edge
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is not set in /opt/edge/.env — Let's Encrypt needs a contact email}
+    networks:
+      - edge
+    restart: unless-stopped
+
+networks:
+  edge:
+    external: true
+
+volumes:
+  caddy_data:
+  caddy_config:

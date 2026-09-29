@@ -39,20 +39,22 @@ layer. Not yet implemented.
 
 ```mermaid
 graph TD
-    subgraph VM["Single VM"]
-        Caddy["Caddy\n(reverse proxy, TLS)"]
-        subgraph api-container["Container: api"]
-            API["Fastify REST API\nSwagger /docs\nCron price fetcher\nDB migrations on boot"]
+    subgraph VM["Hetzner VPS"]
+        Caddy["Edge Caddy (shared by all projects)\nreverse proxy, TLS"]
+        subgraph project["Project: sfl-price-monitor"]
+            subgraph api-container["Container: api"]
+                API["Fastify REST API\nSwagger /docs\nCron price fetcher\nDB migrations on boot"]
+            end
+            subgraph bot-container["Container: bot"]
+                Bot["grammy long-polling\nHTTP client → API"]
+            end
         end
-        subgraph bot-container["Container: bot"]
-            Bot["grammy long-polling\nHTTP client → API"]
-        end
-        Postgres["PostgreSQL"]
     end
 
-    User["Browser / curl"] -->|HTTPS| Caddy --> API
+    User["Browser / curl"] -->|HTTPS| Caddy
+    Caddy -->|"docker network edge\nsfl-api:3000"| API
     Bot -->|"HTTP  http://api:3000"| API
-    API --> Postgres
+    API --> Postgres["PostgreSQL (Neon)"]
     Bot <-->|long-polling| TG["Telegram servers"]
     TG["Telegram servers"] <-->|messages| TGUser["Telegram user"]
 ```
@@ -72,7 +74,7 @@ graph TD
 | Bot as authenticated API client | ✅ Running |
 | Personal price signals | 🔲 Next iteration |
 | Push delivery via outbox | 🔲 Planned |
-| Docker-compose + Caddy | ✅ Running |
+| Docker-compose + shared edge Caddy | ✅ Running |
 
 ## Running locally
 
@@ -101,14 +103,19 @@ Swagger UI is available at `http://localhost:3000/docs`.
 
 ## Running with Docker Compose
 
-Runs all three services — `api`, `bot`, `caddy` — as containers, the same way
-production runs.
+Runs `api` and `bot` as containers, the same way production runs, with a local
+overlay that publishes the API on `127.0.0.1:3000`:
 
 ```bash
 cp .env.example .env
-# for local testing without a real domain, set DOMAIN=:80 (HTTP on port 80, no TLS)
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+curl http://127.0.0.1:3000/health
 ```
+
+Plain `docker compose up` is the production variant: it expects the external `edge`
+network that exists only on the server, and fails without it. The overlay is
+deliberately not named `docker-compose.override.yml` — compose would pick that up
+automatically on the server too.
 
 `DATABASE_URL` can point at a local Postgres or, as in production, at Neon —
 see the comment in `.env.example` for why the direct (non-pooled) connection
@@ -116,12 +123,17 @@ string is required.
 
 ## Deployment
 
-Production runs on an Oracle Cloud Always Free Ampere A1 VM with Neon as the
-managed Postgres and Caddy handling automatic TLS via Let's Encrypt. Full
-step-by-step runbook, including firewall setup and Always-Free-reclaim
-recovery: [`docs/deploy-oracle.md`](docs/deploy-oracle.md).
+Production runs on a Hetzner Cloud VPS (x86, CX line) that hosts several projects,
+with Neon as the managed Postgres and a DuckDNS domain. A single shared **edge Caddy**
+(`/opt/edge` on the server, template in [`deploy/edge/`](deploy/edge/README.md)) is the
+only container that publishes ports 80/443 and handles TLS via Let's Encrypt. This
+project publishes no ports: `api` joins the external docker network `edge` under the
+unique alias `sfl-api`, and its site file
+([`deploy/caddy/sfl.caddy.example`](deploy/caddy/sfl.caddy.example)) is dropped into the
+edge's `sites/` directory. Full step-by-step runbook, including server hardening and the
+cloud firewall: [`docs/deploy-hetzner.md`](docs/deploy-hetzner.md).
 
-`POST /api/auth/login` is blocked by Caddy from outside the compose network —
+`POST /api/auth/login` is blocked by the edge Caddy for external traffic —
 only the `bot` container can reach it, over `http://api:<PORT>`. `ENABLE_SWAGGER=true`
 is intended for production (see "Swagger is intentionally public" above).
 
@@ -152,8 +164,8 @@ is intended for production (see "Swagger is intentionally public" above).
 Full spec at `/docs` (Swagger UI) when the API is running.
 
 **Swagger is intentionally public in production.** `POST /api/auth/login` is bot-only
-and, behind Caddy, unreachable from outside the compose network in the first place
-(see `Caddyfile`) — so there is no way to obtain a Bearer token through the public UI,
+and, behind the edge Caddy, unreachable from outside the server in the first place
+(see `deploy/caddy/sfl.caddy.example`) — so there is no way to obtain a Bearer token through the public UI,
 and protected routes cannot actually be invoked from it. The one field that used to leak
 the bot's shared secret (`x-bot-secret` on the login route) has been removed from the
 schema. Public docs with no working exploit path is a deliberate trade-off, not an

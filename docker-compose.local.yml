@@ -1,0 +1,9 @@
+services:
+  api:
+    ports:
+      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
+
+networks:
+  edge:
+    external: false
+    name: sfl-local-edge

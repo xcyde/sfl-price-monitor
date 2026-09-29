@@ -1,0 +1,6 @@
+sfl-monitor.duckdns.org {
+	@login path /api/auth/login
+	respond @login 404
+
+	reverse_proxy sfl-api:3000
+}
