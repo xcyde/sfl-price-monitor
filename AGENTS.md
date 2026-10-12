@@ -8,7 +8,8 @@ conventions, update this file in the same task.
 
 A backend for monitoring in-game market prices of **Sunflower Land** (a browser P2E game).
 A cron job pulls prices every 15 minutes, stores them as a time series in PostgreSQL,
-and exposes them through a REST API. A Telegram bot is a client of that API.
+and exposes them through a REST API. A second cron job snapshots market prices of boosted
+NFTs every 12 hours to build history for the future signals engine. A Telegram bot is a client of that API.
 
 It is a **resume project**: the goal is to demonstrate Mid-level Node.js/TypeScript
 backend skills — external API integration, time-series data, background jobs, REST API,
@@ -29,6 +30,9 @@ Done:
   externally, `.env.example` uses a direct (non-pooled) Neon endpoint
 - Deployment runbook: `docs/deploy-hetzner.md` (Hetzner Cloud VPS + shared edge Caddy +
   Neon + Dynu, including server hardening and cloud firewall)
+- NFT price history collection: boosted NFTs only, full snapshot every 12 h (00:05/12:05 UTC)
+  plus catch-up on api start, idempotent writes. No consumer yet by design — history
+  collection for the signals engine; API endpoint and bot command later
 - Production deployed (2026-10-10) at `https://sfl-price-monitor.ddnsfree.com` by following
   the runbook: the server holds a git clone in `~/sfl-price-monitor` and builds the image
   itself (`build: .`). Temporary until CI/CD builds images into GHCR and the server only pulls.
@@ -47,6 +51,7 @@ Later (separate big iteration):
 ```
 Telegram ──long-polling── bot (grammy) ──HTTP + JWT──▶ api (Fastify)
                                                         ├─ node-cron: fetch prices every 15 min
+                                                        ├─ node-cron: NFT snapshot 00:05/12:05 UTC + catch-up on boot
                                                         ├─ migrations on boot
                                                         └─ PostgreSQL (Neon)
 Browser ──HTTPS──▶ edge Caddy (shared, /opt/edge) ──docker network "edge"──▶ sfl-api:3000 (api)
@@ -81,12 +86,14 @@ src/
   api/routes/prices.ts  /api/prices/latest, /history, /aggregate (all protected)
   api/schemas.ts        zod request/response schemas
   jobs/priceFetcher.ts  cron schedule + runPriceFetch
+  jobs/nftFetcher.ts    NFT job (DI factory), catch-up decision, 12 h UTC cron
   modules/prices/       SFL API fetcher, prices repository
+  modules/nfts/         NFT fetcher (zod parsing, boost filter), NFT snapshot repository
   modules/auth/         authService (DI factory), refresh token repositories
   modules/users/        users repository
   modules/bot/          apiClient (HTTP + token cache), handlers, formatPrices, createBot
   types/                Fastify and @fastify/jwt type augmentation
-  interfaces/           SFL API response and PriceEntry types
+  interfaces/           SFL API response, PriceEntry and NftEntry types
 deploy/
   edge/                 shared edge Caddy for the whole server (compose, Caddyfile, .env.example)
   caddy/                this project's site file for the edge (sfl.caddy.example)
@@ -100,6 +107,13 @@ docs/deploy-hetzner.md  server setup + deploy runbook
 - `users(id serial, telegram_id bigint unique, telegram_username, created_at)`
 - `refresh_tokens(id, user_id → users unique, token_hash, expires_at)` — one active session per user
 - `used_refresh_tokens(id, user_id, token_hash unique, used_at)` — journal for reuse detection
+- `nfts(id serial, collection, external_id, name NULL, boost_text NULL, created_at)`,
+  `UNIQUE (collection, external_id)` — NFT catalog; the source key is the pair, not `name`.
+  `name` and `boost_text` are overwritten on every snapshot.
+- `nft_price_records(id, nft_id → nfts, floor numeric(24,8), last_sale_price numeric(24,8),
+  supply integer, fetched_at)`, `UNIQUE (nft_id, fetched_at)` — also serves as the index for
+  per-NFT history; separate index on `(fetched_at)` for the latest-snapshot lookup.
+  `numeric(24,8)` because the source has placeholder prices up to 14 integer digits.
 - `migrations` — applied migration names
 
 Primary keys are `serial` integers, not UUIDs. There is **no** `resources`, `alerts` or
@@ -136,6 +150,9 @@ creates `users` and `refresh_tokens`. Never edit an applied migration — add a 
 - zod for env and request/response schemas (`fastify-type-provider-zod`).
 - Business logic in DI factories (`createAuthService`, `createApiClient`) so it is
   testable without a database or network.
+- New fetchers take the URL as a parameter and keep parsing in a pure function
+  (`parseNftsResponse`), so they are testable without `env` or network.
+  `pricesFetcher` still reads `env` directly.
 - Tests: only `node:test` + `node:assert/strict`, no third-party test libraries.
   Mock with `t.mock.method()` (auto-restored), fakes via DI. No real DB in unit tests.
 - Code identifiers in English, self-documenting code, comments only for non-obvious logic.
@@ -158,7 +175,7 @@ docker compose exec -w /etc/caddy caddy caddy reload --config /etc/caddy/Caddyfi
 
 ## Environment
 
-api (`src/config/env.ts`): `DATABASE_URL`, `PRICES_API_URL`, `PORT` (3000), `JWT_SECRET` (≥32),
+api (`src/config/env.ts`): `DATABASE_URL`, `PRICES_API_URL`, `NFTS_API_URL`, `PORT` (3000), `JWT_SECRET` (≥32),
 `JWT_ACCESS_TTL` (15m), `REFRESH_TOKEN_TTL_DAYS` (30), `BOT_INTERNAL_SECRET` (≥16), `ENABLE_SWAGGER` (false).
 
 bot (`src/config/botEnv.ts`): `TELEGRAM_BOT_TOKEN`, `BOT_INTERNAL_SECRET`, `API_BASE_URL`
@@ -212,11 +229,32 @@ See `.env.example` and `deploy/edge/.env.example`.
   the route itself. Only the `bot` container reaches it, over the project network
   (`http://api:<PORT>`).
 - **Native Node 24 TypeScript**, no `tsx`, no ORM, no third-party test libraries.
+- **NFT history: only boosted NFTs** (`have_boost === 1`, predicate `isBoostedNft`). The filter
+  runs on every fetch, so an NFT that later gets a boost joins the collection automatically.
+  Records failing zod validation are skipped and counted, not fatal; a malformed top level
+  (no `updatedAt`) fails the run.
+- **NFT history: every 12 hours**, cron `'5 0,12 * * *'` with explicit `timezone: 'UTC'`;
+  offset to :05 so it does not coincide with the price cron.
+- **NFT history: full snapshot on every run**, not only changes (~240 rows × 2 per day);
+  an even series keeps queries simple.
+- **NFT history: idempotent writes.** `fetched_at` = source `updatedAt` (ms),
+  `UNIQUE (nft_id, fetched_at)` + `ON CONFLICT DO NOTHING`. Catch-up next to the cron, a deploy
+  during the cron or a stale source never create duplicates. An in-process `isRunning` flag
+  also prevents overlapping runs.
+- **NFT history: catch-up on api start** when there is no snapshot or the last one is ≥12 h old.
+  It does not block server start; errors are logged.
+- **NFT history consumer:** history collection for the signals engine; API endpoint and bot
+  command later, once data has accumulated. The source (sfl.world) only serves the current
+  snapshot, so history cannot be backfilled — that is why collection starts before CI/CD.
 
 ## Known debt and gotchas
 
 - `tsc` does not copy `.sql` files: the Dockerfile copies `src/db/migrations` into `dist/db/`.
 - `used_refresh_tokens` grows forever — needs a cleanup job.
+- `price_records` likely contains duplicates: the 15-minute cron runs more often than the
+  source updates, `fetched_at` = source `updatedAt`, and there is no unique key. Fix: a
+  migration that removes duplicates and adds `UNIQUE (item_id, fetched_at)`, plus
+  `ON CONFLICT DO NOTHING` in `savePrices` (same pattern as `nft_price_records`).
 - The codebase still contains Russian comments — to be cleaned up (no-comments rule).
 - `bot.start()` promise is not handled: an invalid token causes an unhandled rejection.
 - `api` loads the whole `.env` via `env_file`, so it also receives `TELEGRAM_BOT_TOKEN`

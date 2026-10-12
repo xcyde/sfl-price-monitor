@@ -43,7 +43,7 @@ graph TD
         Caddy["Edge Caddy (shared by all projects)\nreverse proxy, TLS"]
         subgraph project["Project: sfl-price-monitor"]
             subgraph api-container["Container: api"]
-                API["Fastify REST API\nSwagger /docs\nCron price fetcher\nDB migrations on boot"]
+                API["Fastify REST API\nSwagger /docs\nCron price fetcher\nCron NFT snapshot (12 h)\nDB migrations on boot"]
             end
             subgraph bot-container["Container: bot"]
                 Bot["grammy long-polling\nHTTP client → API"]
@@ -67,6 +67,7 @@ graph TD
 | Capability | Status |
 |---|---|
 | Time-series price storage (cron) | ✅ Running |
+| Boosted NFT price history (12 h snapshots, idempotent) | ✅ Running; collected for signals, no endpoint yet |
 | REST API with Swagger | ✅ Running |
 | JWT access tokens (bot auth flow) | ✅ Running |
 | Refresh token rotation + reuse detection | ✅ Designed, unit-tested; not used by bot (by design) |
@@ -150,6 +151,7 @@ is intended for production (see "Swagger is intentionally public" above).
 | `JWT_ACCESS_TTL` | | `15m` | Access token TTL |
 | `REFRESH_TOKEN_TTL_DAYS` | | `30` | Refresh token TTL |
 | `PRICES_API_URL` | | `https://sfl.world/api/v1/prices` | Upstream price source |
+| `NFTS_API_URL` | | `https://sfl.world/api/v1/nfts` | Upstream NFT market source |
 
 ### Bot process (`src/bot.ts`)
 

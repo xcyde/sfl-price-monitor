@@ -13,3 +13,13 @@ export interface PriceEntry {
   price: number;
   fetchedAt: Date;
 }
+
+export interface NftEntry {
+  collection: string;
+  externalId: number;
+  name: string | null;
+  boostText: string | null;
+  floor: number;
+  lastSalePrice: number;
+  supply: number;
+}

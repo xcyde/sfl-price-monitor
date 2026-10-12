@@ -22,6 +22,7 @@ test('applies defaults for optional fields', () => {
   assert.equal(result.REFRESH_TOKEN_TTL_DAYS, 30);
   assert.equal(result.JWT_ACCESS_TTL, '15m');
   assert.equal(result.PRICES_API_URL, 'https://sfl.world/api/v1/prices');
+  assert.equal(result.NFTS_API_URL, 'https://sfl.world/api/v1/nfts');
 });
 
 test('throws when DATABASE_URL is missing', () => {

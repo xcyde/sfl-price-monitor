@@ -12,6 +12,9 @@ import {
 
 import { migrate } from './db/migrate.ts';
 import { startPriceFetcherCron } from './jobs/priceFetcher.ts';
+import { createNftFetchJob, startNftFetcherCron } from './jobs/nftFetcher.ts';
+import { fetchNfts } from './modules/nfts/nftsFetcher.ts';
+import { nftSnapshotRepository } from './modules/nfts/nftsRepository.ts';
 import { pricesRoutes } from './api/routes/prices.ts';
 import { authRoutes } from './api/routes/auth.ts';
 import { env } from './config/env.ts';
@@ -21,6 +24,17 @@ async function main() {
   console.log('Database migration completed successfully.');
 
   startPriceFetcherCron();
+
+  const nftFetchJob = createNftFetchJob({
+    fetchSnapshot: () => fetchNfts(env.NFTS_API_URL),
+    repository: nftSnapshotRepository,
+    now: () => new Date(),
+    logger: console,
+  });
+  startNftFetcherCron(nftFetchJob);
+  nftFetchJob
+    .runNftCatchUpIfNeeded()
+    .catch((err) => console.error('[nftFetcher] catch-up failed:', err));
 
   const app = Fastify({ logger: true }).withTypeProvider<ZodTypeProvider>();
 

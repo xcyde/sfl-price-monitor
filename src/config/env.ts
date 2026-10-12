@@ -3,6 +3,7 @@ import { z } from 'zod';
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
   PRICES_API_URL: z.string().default('https://sfl.world/api/v1/prices'),
+  NFTS_API_URL: z.string().default('https://sfl.world/api/v1/nfts'),
   PORT: z.coerce.number().default(3000),
   JWT_SECRET: z.string().min(32),
   JWT_ACCESS_TTL: z.string().default('15m'),
