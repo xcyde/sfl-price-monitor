@@ -165,7 +165,10 @@ npm test                      # node --test over src/**/*.test.ts
 node src/index.ts             # api (needs DATABASE_URL etc. in .env)
 node src/bot.ts               # bot (needs a running api)
 docker compose -f docker-compose.yml -f docker-compose.local.yml config        # validate local variant
-docker compose -f docker-compose.yml -f docker-compose.local.yml up --build    # api on 127.0.0.1:3000 + bot
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build    # db + api on 127.0.0.1:3000 + bot
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d db      # only local Postgres, for `node src/index.ts`
+docker compose -f docker-compose.yml -f docker-compose.local.yml exec db psql -U sfl -d sfl   # local SQL shell
+docker compose -f docker-compose.yml -f docker-compose.local.yml down -v       # drop local data
 docker compose config         # prod variant; fails locally without the external `edge` network — expected
 docker compose up -d --build  # prod, on the server (needs `edge` network + running edge Caddy)
 
@@ -214,6 +217,14 @@ See `.env.example` and `deploy/edge/.env.example`.
   on the server). Locally the `edge` network is a regular project network and `api` is
   published on `127.0.0.1:${PORT}`; no local Caddy (it would not exercise TLS or the real
   edge anyway).
+- **Local development never touches production.** The local overlay runs `db`
+  (`postgres:18-alpine`, same major as Neon, volume `sfl-local-pgdata` mounted at
+  `/var/lib/postgresql` as Postgres 18 images require, `127.0.0.1:5432`) and forces
+  `api` onto it via `environment: DATABASE_URL`, which overrides `env_file`. A Neon branch
+  (instant copy of production data) is created only on demand to test risky migrations on
+  real data, then deleted. Locally a separate dev bot (`@sflpm_dev_bot`) and separate
+  `JWT_SECRET` / `BOT_INTERNAL_SECRET` are used — a token signed with the production
+  `JWT_SECRET` would be accepted by production.
 - **Hetzner Cloud Firewall, not `ufw`**: inbound only 22/tcp, 80/tcp, 443/tcp, 443/udp.
   Docker's iptables rules bypass `ufw` for published ports.
 - **Server access**: non-root sudo user, SSH keys only (`PermitRootLogin no`,
@@ -261,6 +272,12 @@ See `.env.example` and `deploy/edge/.env.example`.
   and other variables it does not need. Least privilege holds only for `bot`.
 - Service name `api` is also registered in the shared `edge` network. Harmless while SFL is
   the only project; consider renaming services with a project prefix before adding another.
+- The local `db` container is not Neon: no TLS, no pooler, no autosuspend. Behaviour that
+  depends on them is verified only on the server.
+- Host port `5432` must be free for the local `db`. If another Postgres holds it, Docker
+  leaves `db` running but detached from the network (`Networks: {}`), its healthcheck still
+  passes, and `api` fails with `getaddrinfo EAI_AGAIN db`. Check with
+  `docker ps --format '{{.Names}}\t{{.Ports}}' | grep 5432`.
 - `/opt/edge` on the server holds copies of `deploy/edge/`; repo changes there must be
   copied over by hand (until the edge moves to its own infra repo).
 

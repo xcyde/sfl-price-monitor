@@ -79,12 +79,14 @@ graph TD
 
 ## Running locally
 
-Requires Node 24 (see `.nvmrc`) and a running PostgreSQL instance.
+Requires Node 24 (see `.nvmrc`) and Docker for the local PostgreSQL.
 
 ```bash
 cp .env.example .env
-# fill in DATABASE_URL, JWT_SECRET, BOT_INTERNAL_SECRET, TELEGRAM_BOT_TOKEN
+# fill in JWT_SECRET, BOT_INTERNAL_SECRET and TELEGRAM_BOT_TOKEN of a separate dev bot;
+# never reuse production secrets or the production bot token locally
 nvm use
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d db
 ```
 
 **Terminal 1 — API** (Fastify, migrations, cron):
@@ -105,7 +107,8 @@ Swagger UI is available at `http://localhost:3000/docs`.
 ## Running with Docker Compose
 
 Runs `api` and `bot` as containers, the same way production runs, with a local
-overlay that publishes the API on `127.0.0.1:3000`:
+overlay that adds a PostgreSQL 18 container (`db`, data in the `sfl-local-pgdata` volume,
+also published on `127.0.0.1:5432`) and publishes the API on `127.0.0.1:3000`:
 
 ```bash
 cp .env.example .env
@@ -118,9 +121,9 @@ network that exists only on the server, and fails without it. The overlay is
 deliberately not named `docker-compose.override.yml` — compose would pick that up
 automatically on the server too.
 
-`DATABASE_URL` can point at a local Postgres or, as in production, at Neon —
-see the comment in `.env.example` for why the direct (non-pooled) connection
-string is required.
+Inside the overlay `api` always uses the local `db` container, whatever `DATABASE_URL`
+says in `.env`. Reset local data with `down -v`. Production uses Neon — see the comment
+in `.env.example` for why the direct (non-pooled) connection string is required.
 
 ## Deployment
 
