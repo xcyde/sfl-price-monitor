@@ -1,4 +1,4 @@
-sfl-monitor.duckdns.org {
+sfl-price-monitor.ddnsfree.com {
 	@login path /api/auth/login
 	respond @login 404
 

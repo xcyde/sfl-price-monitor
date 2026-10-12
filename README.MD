@@ -124,7 +124,7 @@ string is required.
 ## Deployment
 
 Production runs on a Hetzner Cloud VPS (x86, CX line) that hosts several projects,
-with Neon as the managed Postgres and a DuckDNS domain. A single shared **edge Caddy**
+with Neon as the managed Postgres and a Dynu domain. A single shared **edge Caddy**
 (`/opt/edge` on the server, template in [`deploy/edge/`](deploy/edge/README.md)) is the
 only container that publishes ports 80/443 and handles TLS via Let's Encrypt. This
 project publishes no ports: `api` joins the external docker network `edge` under the

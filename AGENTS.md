@@ -28,7 +28,10 @@ Done:
 - Deployment hardening: bot gets only its own env, the edge Caddy blocks `/api/auth/login`
   externally, `.env.example` uses a direct (non-pooled) Neon endpoint
 - Deployment runbook: `docs/deploy-hetzner.md` (Hetzner Cloud VPS + shared edge Caddy +
-  Neon + DuckDNS, including server hardening and cloud firewall)
+  Neon + Dynu, including server hardening and cloud firewall)
+- Production deployed (2026-10-10) at `https://sfl-price-monitor.ddnsfree.com` by following
+  the runbook: the server holds a git clone in `~/sfl-price-monitor` and builds the image
+  itself (`build: .`). Temporary until CI/CD builds images into GHCR and the server only pulls.
 
 Next:
 - CI/CD (GitHub Actions: lint, build, test, deploy)
@@ -199,7 +202,9 @@ See `.env.example` and `deploy/edge/.env.example`.
 - **Server access**: non-root sudo user, SSH keys only (`PermitRootLogin no`,
   `PasswordAuthentication no`), unattended-upgrades. See `docs/deploy-hetzner.md`.
 - **Neon for PostgreSQL**, not a Postgres container on the VM (survives losing the VM,
-  keeps the VPS stateless).
+  keeps the VPS stateless). Region AWS Europe Central 1 (Frankfurt), next to the server.
+- **Dynu for DNS** (free hostname `sfl-price-monitor.ddnsfree.com`), not DuckDNS. The
+  server IP is static, so no update client runs.
 - **Swagger is public.** The only leak (the `x-bot-secret` header field in the login
   schema) has been removed.
 - **`/api/auth/login` is blocked at the edge Caddy for external traffic** (`respond ... 404`

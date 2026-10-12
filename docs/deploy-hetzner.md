@@ -3,7 +3,7 @@
 Target: one paid Hetzner Cloud VPS that hosts **several projects**. A single shared
 Caddy ("edge") owns ports 80/443 and routes each domain to its project. SFL runs as
 two containers (`api` + `bot`) from one image, PostgreSQL is managed by Neon, the
-domain comes from DuckDNS. See the root `CLAUDE.md` for why this topology was chosen.
+domain comes from Dynu (free dynamic DNS). See the root `CLAUDE.md` for why this topology was chosen.
 
 ```
 Internet
@@ -27,8 +27,9 @@ Placeholders used below — replace them with your values:
 | Placeholder | Example |
 |---|---|
 | `<SERVER_IP>` | `203.0.113.10` — the server's public IPv4 |
-| `<your-domain>` | `sfl-monitor.duckdns.org` |
+| `<your-domain>` | `sfl-price-monitor.ddnsfree.com` |
 | `<repo-url>` | `https://github.com/<you>/sfl-price-monitor.git` |
+| `<user>` | `me` — your own admin user on the server (created in step 5.2) |
 
 Commands are marked with where they run: **[local]** is your own computer,
 **[server]** is an SSH session on the VPS.
@@ -37,7 +38,7 @@ Commands are marked with where they run: **[local]** is your own computer,
 
 - A Hetzner Cloud account ([console.hetzner.cloud](https://console.hetzner.cloud)).
 - A Neon account ([neon.tech](https://neon.tech)), free tier.
-- A DuckDNS account ([duckdns.org](https://www.duckdns.org)), free.
+- A Dynu account ([dynu.com](https://www.dynu.com)), free, no card required.
 - A Telegram bot token from @BotFather.
 - The repository pushed to GitHub (or any git host the server can clone from).
 
@@ -68,7 +69,9 @@ cat ~/.ssh/id_ed25519.pub
 
 ## 2. Neon: create the database
 
-1. Create a project at [neon.tech](https://neon.tech).
+1. Create a project at [neon.tech](https://neon.tech). Pick the region closest to the
+   server — **AWS Europe Central 1 (Frankfurt)** for a server in Germany or Finland.
+   The region is chosen only at creation and cannot be changed later.
 2. In the project dashboard, copy the **direct** connection string — the one whose
    host does **not** contain `-pooler`. The api process is long-running and holds its
    connection open, so Neon's pgbouncer pooler only adds a hop.
@@ -148,12 +151,12 @@ minute and log in again.
 ### 5.2 Create your own user
 
 Working as `root` all the time is risky: one typo has no safety net. Create a regular
-user named `deploy` that can use `sudo`:
+user `<user>` (any name you like) that can use `sudo`:
 
 **[server]** (as root)
 
 ```bash
-adduser deploy
+adduser <user>
 ```
 
 It asks for a password — **set a strong one and save it in your password manager**.
@@ -161,12 +164,12 @@ You will need it for `sudo` and for the emergency web console (section 5.5). The
 room number and other questions can be skipped with Enter.
 
 ```bash
-usermod -aG sudo deploy
-rsync --archive --chown=deploy:deploy ~/.ssh /home/deploy
+usermod -aG sudo <user>
+rsync --archive --chown=<user>:<user> ~/.ssh /home/<user>
 ```
 
 The second command copies root's `authorized_keys` (your public key) to the new user
-with the correct owner, so the same key works for `deploy`.
+with the correct owner, so the same key works for `<user>`.
 
 ### 5.3 Check the new user — in a SECOND terminal
 
@@ -178,28 +181,28 @@ Open a **second terminal window** on your computer:
 **[local]**
 
 ```bash
-ssh deploy@<SERVER_IP>
+ssh <user>@<SERVER_IP>
 ```
 
 Then, in that second session:
 
-**[server]** (as deploy)
+**[server]** (as <user>)
 
 ```bash
 sudo whoami
 ```
 
-It asks for the `deploy` password and must print `root`. **Only continue if both the
+It asks for the `<user>` password and must print `root`. **Only continue if both the
 login and `sudo whoami` worked.**
 
 ### 5.4 Disable root login and password login
 
-From now on, only key-based login as `deploy` is allowed. Settings go into a separate
+From now on, only key-based login as `<user>` is allowed. Settings go into a separate
 file so that package upgrades never overwrite them. On Ubuntu the **first** value
 found for an option wins, and files in `sshd_config.d/` are read in name order, so the
 `00-` prefix guarantees this file takes priority over the cloud image's defaults.
 
-**[server]** (as deploy, in the second session)
+**[server]** (as <user>, in the second session)
 
 ```bash
 sudo tee /etc/ssh/sshd_config.d/00-hardening.conf > /dev/null <<'EOF'
@@ -239,7 +242,7 @@ sudo systemctl restart ssh
 Restarting sshd does **not** drop sessions that are already open — both of your
 terminals stay connected.
 
-> ⚠️ Now open a **third** terminal and check `ssh deploy@<SERVER_IP>` once more.
+> ⚠️ Now open a **third** terminal and check `ssh <user>@<SERVER_IP>` once more.
 > Only when that works, close the root session from 5.1.
 
 Optional check that root is really locked out — **[local]**:
@@ -252,7 +255,7 @@ ssh root@<SERVER_IP>        # expected: Permission denied (publickey)
 
 - Hetzner Cloud Console → your server → **Console** (the `>_` icon) opens a browser
   terminal. It is a physical-console login, not SSH, so the SSH restrictions above do
-  not apply: log in as `deploy` with its password and fix `/etc/ssh/sshd_config.d/`.
+  not apply: log in as `<user>` with its password and fix `/etc/ssh/sshd_config.d/`.
 - Last resort: server → **Rescue** → **Reset root password**, then log in via the same
   browser console.
 
@@ -317,13 +320,13 @@ EOF
 sudo systemctl restart docker
 ```
 
-Let `deploy` run docker without `sudo`:
+Let `<user>` run docker without `sudo`:
 
 ```bash
-sudo usermod -aG docker deploy
+sudo usermod -aG docker <user>
 ```
 
-Group membership applies to **new** logins: type `exit`, then `ssh deploy@<SERVER_IP>`
+Group membership applies to **new** logins: type `exit`, then `ssh <user>@<SERVER_IP>`
 again. Check:
 
 ```bash
@@ -334,18 +337,22 @@ docker compose version          # prints "Docker Compose version v2.x"
 Membership in the `docker` group is effectively root access. That is fine here: it is
 your own user on your own server.
 
-## 7. DuckDNS: point the domain at the server
+## 7. Dynu: point the domain at the server
 
 Do this **before** starting Caddy: Caddy requests a certificate as soon as it sees the
 domain, and if DNS does not point at the server yet, Let's Encrypt fails and Caddy
 retries with growing delays.
 
-1. Log in at [duckdns.org](https://www.duckdns.org), add a subdomain (e.g. `sfl-monitor`).
-2. In the **current ip** field enter `<SERVER_IP>`, click **update ip**.
-   Leave the IPv6 field empty.
+1. Log in at [dynu.com](https://www.dynu.com) → **Control Panel** → **DDNS Services** →
+   **Add**. Choose a free hostname under one of Dynu's domains
+   (e.g. `sfl-price-monitor` + `ddnsfree.com`).
+2. Open the new hostname. **Check the IPv4 Address field**: Dynu pre-fills it with the
+   IP of your *browser*, i.e. your home IP. Replace it with `<SERVER_IP>`.
+3. Leave the IPv6 address empty (disable IPv6 for the hostname if the form asks), then save.
 
-The server's IP is static, so this one-time update is enough — DuckDNS's update cron
-job is only needed for changing IPs.
+The server's IP is static, so this one-time update is enough — Dynu's update client is
+only needed for changing IPs. Dynu's domains are on the Public Suffix List, so Let's
+Encrypt counts its rate limits per hostname, not for all Dynu users together.
 
 **[local]** check (may take a minute or two):
 
@@ -382,7 +389,7 @@ and run `git config core.sshCommand "ssh -i ~/.ssh/github_deploy"` inside the cl
 docker network create edge
 
 sudo mkdir -p /opt/edge/sites
-sudo chown -R deploy:deploy /opt/edge
+sudo chown -R <user>:<user> /opt/edge
 cp ~/sfl-price-monitor/deploy/edge/docker-compose.yml /opt/edge/
 cp ~/sfl-price-monitor/deploy/edge/Caddyfile /opt/edge/
 cp ~/sfl-price-monitor/deploy/edge/.env.example /opt/edge/.env
@@ -441,7 +448,7 @@ chmod 600 .env
 
 ```bash
 cp ~/sfl-price-monitor/deploy/caddy/sfl.caddy.example /opt/edge/sites/sfl.caddy
-nano /opt/edge/sites/sfl.caddy   # replace sfl-monitor.duckdns.org with <your-domain>
+nano /opt/edge/sites/sfl.caddy   # replace the domain on the first line if yours differs
 ```
 
 If you ever change `PORT` in `.env`, change `sfl-api:3000` in this file to match.
@@ -538,11 +545,11 @@ the site file changed.
    container attached to `edge` — a request can land in the wrong project. Keep internal
    services (databases, workers, bots) in the project's own network, and have Caddy
    address projects only by their unique alias.
-3. Point a domain (e.g. a new DuckDNS subdomain) at `<SERVER_IP>`.
+3. Point a domain (e.g. a new Dynu hostname) at `<SERVER_IP>`.
 4. Add `/opt/edge/sites/<project>.caddy`:
 
    ```
-   myproject.duckdns.org {
+   myproject.ddnsfree.com {
    	reverse_proxy myproject-api:<port>
    }
    ```
